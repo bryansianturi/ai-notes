@@ -1,0 +1,6 @@
+fastapi
+uvicorn
+psycopg[binary]
+requests
+pytest
+httpx
