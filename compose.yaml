@@ -9,6 +9,22 @@ services:
       - "5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U student -d ainotes"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  web:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql://student:devpassword@db:5432/ainotes
+      OLLAMA_URL: http://host.docker.internal:11434
+    depends_on:
+      db:
+        condition: service_healthy
 
 volumes:
   pgdata:
