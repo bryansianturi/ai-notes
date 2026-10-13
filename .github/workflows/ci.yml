@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    # A throwaway Postgres just for this run
+    services:
+      db:
+        image: postgres:17
+        env:
+          POSTGRES_USER: student
+          POSTGRES_PASSWORD: devpassword
+          POSTGRES_DB: ainotes
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U student -d ainotes"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 15
+
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: ruff check .
+      - run: pytest -v
+
+  build:
+    needs: test # only runs if tests pass
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: docker build -t ai-notes:${{ github.sha }} .
