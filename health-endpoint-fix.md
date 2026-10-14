@@ -17,11 +17,13 @@ Expected `{"status":"ok"}`.
 
 The `/health` code was fine. The Kubernetes manifest pointed at a container image built **before** that code was merged.
 
-| Commit | What happened | Image built has `/health`? |
-|---|---|---|
-| `b8e7013` | PR #3 merged (Argo CD app) | ❌ No |
-| `9246f09` | PR #4 merged (adds `/health`) | ✅ Yes |
-| PR #5 / #7 | Set `k8s/20-web.yaml` to image `b8e7013…` and readiness probe to `/health` | ❌ Wrong tag |
+| Commit | Image tag | What happened | Image has `/health`? |
+|---|---|---|---|
+| `8b99a1b` | `b8e7013…` | PR #3 merged (Argo CD app) | ❌ No |
+| `a216c25` | `9246f09…` | PR #4 merged (adds `/health`) | ✅ Yes |
+| PR #5 / #7 | — | Set `k8s/20-web.yaml` to image `b8e7013…` and readiness probe to `/health` | ❌ Wrong tag |
+
+> On 2026-10-14 `main`'s history was rewritten, which changed every commit hash. Image tags in GHCR still carry the **original** commit SHAs, so a tag no longer matches the hash of the commit it was built from. Use the tag exactly as written in `k8s/20-web.yaml`.
 
 - FastAPI returns `{"detail":"Not Found"}` for any route it doesn't know.
 - Pods running `b8e7013` can never pass the `/health` readiness probe. The rollout hangs ("Progressing") while the old pods keep serving 404s.
@@ -36,7 +38,7 @@ In `k8s/20-web.yaml`:
 image: ghcr.io/bryansianturi/ai-notes:9246f0946e12c9a08e79afe7a918ded0efaf13f3
 ```
 
-Shipped in PR #8 (merged as `30d0dd2`).
+Shipped in PR #8 (merged as `9627f77`).
 
 ## Commands used
 
@@ -96,7 +98,7 @@ curl -H "Host: ai-notes.test" localhost/health   # {"status":"ok"}
 
 ## Update: Traefik Ingress (PR #9)
 
-PR #9 (`e0cec62`) changed the `web` Service from `LoadBalancer` (port 8081) to `ClusterIP` (port 80) and added `k8s/30-ingress.yaml`. That file routes host `ai-notes.test` through Traefik.
+PR #9 (`69db7cb`) changed the `web` Service from `LoadBalancer` (port 8081) to `ClusterIP` (port 80) and added `k8s/30-ingress.yaml`. That file routes host `ai-notes.test` through Traefik.
 
 - `localhost:8081` no longer works. Go through the Ingress instead: `curl -H "Host: ai-notes.test" localhost/health`.
 - `404 page not found` (plain text) comes from **Traefik**, not the app. It means no Ingress rule matched. Either the Ingress doesn't exist yet (Argo CD hasn't synced) or the `Host` header is missing or wrong.
