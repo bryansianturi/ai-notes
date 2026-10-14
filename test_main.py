@@ -73,3 +73,8 @@ def test_metrics_endpoint(client):
     r = client.get("/metrics")
     assert r.status_code == 200
     assert "http_requests_total" in r.text
+
+
+def test_request_id_is_returned(client):
+    r = client.get("/health", headers={"X-Request-ID": "abc123"})
+    assert r.headers["X-Request-ID"] == "abc123"

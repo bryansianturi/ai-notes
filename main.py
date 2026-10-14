@@ -1,6 +1,10 @@
+import json
+import logging
 import os
 import time
+import uuid
 from contextlib import asynccontextmanager
+from contextvars import ContextVar
 
 import psycopg
 import requests
@@ -56,22 +60,63 @@ app = FastAPI(title="ai-notes", lifespan=lifespan)
 
 @app.middleware("http")
 async def track_requests(request: Request, call_next):
+    # Reuse the caller's ID if they sent one, otherwise make a short new one
+    request_id = request.headers.get("x-request-id", uuid.uuid4().hex[:8])
+    request_id_var.set(request_id)
+
     start = time.perf_counter()
     response = await call_next(request)
+    duration = time.perf_counter() - start
 
-    # Use the route *template* (/notes/{note_id}), not the real URL (/notes/42)
     route = request.scope.get("route")
     path = route.path if route else "unmatched"
 
     if path != "/metrics":
         REQUESTS.labels(request.method, path, response.status_code).inc()
-        LATENCY.labels(request.method, path).observe(time.perf_counter() - start)
+        LATENCY.labels(request.method, path).observe(duration)
+        log.info(
+            "request",
+            extra={
+                "fields": {
+                    "method": request.method,
+                    "path": request.url.path,
+                    "status": response.status_code,
+                    "duration_ms": round(duration * 1000, 1),
+                }
+            },
+        )
+
+    response.headers["X-Request-ID"] = request_id
     return response
 
 
 @app.get("/metrics", include_in_schema=False)
 def metrics():
     return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
+
+
+# Holds the current request's ID, so every log line can include it automatically
+request_id_var: ContextVar[str] = ContextVar("request_id", default="-")
+
+
+class JsonFormatter(logging.Formatter):
+    def format(self, record):
+        entry = {
+            "time": self.formatTime(record, "%Y-%m-%dT%H:%M:%S"),
+            "level": record.levelname,
+            "message": record.getMessage(),
+            "request_id": request_id_var.get(),
+        }
+        entry.update(getattr(record, "fields", {}))
+        return json.dumps(entry)
+
+
+handler = logging.StreamHandler()
+handler.setFormatter(JsonFormatter())
+log = logging.getLogger("ai-notes")
+log.addHandler(handler)
+log.setLevel(logging.INFO)
+log.propagate = False
 
 
 class NoteIn(BaseModel):
@@ -111,6 +156,7 @@ def summarise_note(note_id: int):
     if note is None:
         raise HTTPException(status_code=404, detail="Note not found")
 
+    start = time.perf_counter()
     try:
         r = requests.post(
             f"{OLLAMA_URL}/api/chat",
@@ -129,9 +175,37 @@ def summarise_note(note_id: int):
             timeout=120,
         )
         r.raise_for_status()
-    except requests.RequestException:
+    except requests.RequestException as e:
+        OLLAMA_ERRORS.inc()
+        log.warning(
+            "ollama_failed",
+            extra={
+                "fields": {
+                    "note_id": note_id,
+                    "error": type(e).__name__,
+                    "detail": str(e)[:200],
+                }
+            },
+        )
         raise HTTPException(
             status_code=503, detail="Can't reach Ollama. Is it running?"
         )
 
-    return {"id": note_id, "summary": r.json()["message"]["content"]}
+    OLLAMA_LATENCY.observe(time.perf_counter() - start)
+    data = r.json()
+    OLLAMA_TOKENS.labels(type="prompt").inc(data.get("prompt_eval_count", 0))
+    OLLAMA_TOKENS.labels(type="completion").inc(data.get("eval_count", 0))
+
+    log.info(
+        "summarised",
+        extra={
+            "fields": {
+                "note_id": note_id,
+                "model": MODEL,
+                "duration_s": round(time.perf_counter() - start, 2),
+                "prompt_tokens": data.get("prompt_eval_count", 0),
+                "completion_tokens": data.get("eval_count", 0),
+            }
+        },
+    )
+    return {"id": note_id, "summary": data["message"]["content"]}
