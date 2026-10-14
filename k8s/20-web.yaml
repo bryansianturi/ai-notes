@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: web
-          image: ghcr.io/bryansianturi/ai-notes:b8e70133f4eed75fd72fca3390e26fa258a614ad
+          image: ghcr.io/bryansianturi/ai-notes:9246f0946e12c9a08e79afe7a918ded0efaf13f3
           ports:
             - containerPort: 8000
           env:
