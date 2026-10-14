@@ -60,3 +60,9 @@ def test_summarise_returns_503_when_ollama_down(client, monkeypatch):
     r = client.post(f"/notes/{note_id}/summarise")
 
     assert r.status_code == 503
+
+
+def test_health(client):
+    r = client.get("/health")
+    assert r.status_code == 200
+    assert r.json() == {"status": "ok"}

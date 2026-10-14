@@ -61,6 +61,11 @@ def list_notes():
         ).fetchall()
 
 
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+
 @app.post("/notes/{note_id}/summarise")
 def summarise_note(note_id: int):
     with get_conn() as conn:
