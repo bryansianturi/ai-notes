@@ -1,0 +1,42 @@
+name: Evals
+
+on:
+  workflow_dispatch: # a "Run workflow" button in the Actions tab
+    inputs:
+      model:
+        description: Ollama model to evaluate
+        default: qwen3.5:4b
+  pull_request:
+    paths: # only when prompts or evals change
+      - "prompts/**"
+      - "evals/**"
+      - "evals.py"
+
+jobs:
+  evals:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      MODEL: ${{ inputs.model || 'qwen3.5:4b' }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+          cache: pip
+      - run: pip install -r requirements.txt
+
+      - name: Install and start Ollama
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          (ollama serve > /tmp/ollama.log 2>&1 &)
+          until curl -s localhost:11434 > /dev/null; do sleep 1; done
+
+      - run: ollama pull "$MODEL"
+      - run: python evals.py "$MODEL"
+
+      - uses: actions/upload-artifact@v4
+        if: always() # keep the results even when evals fail
+        with:
+          name: eval-results
+          path: evals/results/

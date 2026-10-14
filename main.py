@@ -1,3 +1,4 @@
+import hashlib
 import json
 import logging
 import os
@@ -5,6 +6,7 @@ import time
 import uuid
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
+from pathlib import Path
 
 import psycopg
 import requests
@@ -19,7 +21,9 @@ DATABASE_URL = os.getenv(
 )
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
 MODEL = os.getenv("MODEL", "qwen3.5:4b")
-
+PROMPT_PATH = Path(__file__).parent / "prompts" / "summarise.txt"
+SYSTEM_PROMPT = PROMPT_PATH.read_text().strip()
+PROMPT_VERSION = hashlib.sha256(SYSTEM_PROMPT.encode()).hexdigest()[:8]
 REQUESTS = Counter(
     "http_requests_total", "HTTP requests handled", ["method", "path", "status"]
 )
@@ -29,6 +33,7 @@ LATENCY = Histogram(
 OLLAMA_LATENCY = Histogram(
     "ollama_summary_duration_seconds",
     "Time Ollama takes to summarise a note",
+    ["model"],
     buckets=(0.5, 1, 2, 5, 10, 20, 30, 60, 120),
 )
 OLLAMA_TOKENS = Counter("ollama_tokens_total", "Tokens processed by Ollama", ["type"])
@@ -38,6 +43,25 @@ OLLAMA_ERRORS = Counter("ollama_errors_total", "Failed calls to Ollama")
 def get_conn():
     # dict_row makes each row a dict like {"id": 1, "title": ...}
     return psycopg.connect(DATABASE_URL, row_factory=dict_row)
+
+
+def ask_ollama(text: str, model: str = MODEL) -> dict:
+    """Send text to Ollama and return its raw JSON reply. Used by the API and by evals."""
+    r = requests.post(
+        f"{OLLAMA_URL}/api/chat",
+        json={
+            "model": model,
+            "messages": [
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": text},
+            ],
+            "stream": False,
+            "think": False,
+        },
+        timeout=120,
+    )
+    r.raise_for_status()
+    return r.json()
 
 
 @asynccontextmanager
@@ -158,23 +182,7 @@ def summarise_note(note_id: int):
 
     start = time.perf_counter()
     try:
-        r = requests.post(
-            f"{OLLAMA_URL}/api/chat",
-            json={
-                "model": MODEL,
-                "messages": [
-                    {
-                        "role": "system",
-                        "content": "Summarise the user's note in one short sentence.",
-                    },
-                    {"role": "user", "content": note["body"]},
-                ],
-                "stream": False,
-                "think": False,
-            },
-            timeout=120,
-        )
-        r.raise_for_status()
+        data = ask_ollama(note["body"])
     except requests.RequestException as e:
         OLLAMA_ERRORS.inc()
         log.warning(
@@ -190,18 +198,18 @@ def summarise_note(note_id: int):
         raise HTTPException(
             status_code=503, detail="Can't reach Ollama. Is it running?"
         )
+    finally:
+        OLLAMA_LATENCY.labels(MODEL).observe(time.perf_counter() - start)
 
-    OLLAMA_LATENCY.observe(time.perf_counter() - start)
-    data = r.json()
-    OLLAMA_TOKENS.labels(type="prompt").inc(data.get("prompt_eval_count", 0))
-    OLLAMA_TOKENS.labels(type="completion").inc(data.get("eval_count", 0))
-
+    OLLAMA_TOKENS.labels("prompt").inc(data.get("prompt_eval_count", 0))
+    OLLAMA_TOKENS.labels("completion").inc(data.get("eval_count", 0))
     log.info(
         "summarised",
         extra={
             "fields": {
                 "note_id": note_id,
                 "model": MODEL,
+                "prompt_version": PROMPT_VERSION,
                 "duration_s": round(time.perf_counter() - start, 2),
                 "prompt_tokens": data.get("prompt_eval_count", 0),
                 "completion_tokens": data.get("eval_count", 0),
