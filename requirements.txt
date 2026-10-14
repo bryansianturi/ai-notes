@@ -5,3 +5,4 @@ requests
 pytest
 httpx
 ruff
+prometheus-client
