@@ -1,15 +1,13 @@
 import os
+import time
 from contextlib import asynccontextmanager
 
 import psycopg
 import requests
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request, Response
+from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
 from psycopg.rows import dict_row
 from pydantic import BaseModel
-
-import time
-from fastapi import Request, Response
-from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
 
 # Settings come from environment variables, with defaults for running on your Mac.
 DATABASE_URL = os.getenv(
