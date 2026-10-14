@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+  namespace: ai-notes
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: web
+  template:
+    metadata:
+      labels:
+        app: web
+    spec:
+      containers:
+        - name: web
+          image: ghcr.io/bryansianturi/ai-notes:1298ce922e5e4fae89277712198651703e6ee796
+          ports:
+            - containerPort: 8000
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: ai-notes-db
+                  key: DATABASE_URL
+            - name: OLLAMA_URL
+              value: http://host.docker.internal:11434
+          readinessProbe:
+            httpGet:
+              path: /docs
+              port: 8000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: web
+  namespace: ai-notes
+spec:
+  type: LoadBalancer
+  selector:
+    app: web
+  ports:
+    - port: 8081
+      targetPort: 8000
