@@ -17,11 +17,13 @@ Expected `{"status":"ok"}`.
 
 The `/health` code was fine. The Kubernetes manifest pointed at a container image built **before** that code was merged.
 
-| Commit | What happened | Image built has `/health`? |
-|---|---|---|
-| `b8e7013` | PR #3 merged (Argo CD app) | ❌ No |
-| `9246f09` | PR #4 merged (adds `/health`) | ✅ Yes |
-| PR #5 / #7 | Set `k8s/20-web.yaml` to image `b8e7013…` and readiness probe to `/health` | ❌ Wrong tag |
+| Commit | Image tag | What happened | Image has `/health`? |
+|---|---|---|---|
+| `8b99a1b` | `b8e7013…` | PR #3 merged (Argo CD app) | ❌ No |
+| `a216c25` | `9246f09…` | PR #4 merged (adds `/health`) | ✅ Yes |
+| PR #5 / #7 | — | Set `k8s/20-web.yaml` to image `b8e7013…` and readiness probe to `/health` | ❌ Wrong tag |
+
+> On 2026-10-14 `main`'s history was rewritten, which changed every commit hash. Image tags in GHCR still carry the **original** commit SHAs, so a tag no longer matches the hash of the commit it was built from. Use the tag exactly as written in `k8s/20-web.yaml`.
 
 - FastAPI returns `{"detail":"Not Found"}` for any route it doesn't know.
 - Pods running `b8e7013` can never pass the `/health` readiness probe. The rollout hangs ("Progressing") while the old pods keep serving 404s.
@@ -36,7 +38,7 @@ In `k8s/20-web.yaml`:
 image: ghcr.io/bryansianturi/ai-notes:9246f0946e12c9a08e79afe7a918ded0efaf13f3
 ```
 
-Shipped in PR #8 (merged as `30d0dd2`).
+Shipped in PR #8 (merged as `9627f77`).
 
 ## Commands used
 
@@ -96,12 +98,31 @@ curl -H "Host: ai-notes.test" localhost/health   # {"status":"ok"}
 
 ## Update: Traefik Ingress (PR #9)
 
-PR #9 (`e0cec62`) changed the `web` Service from `LoadBalancer` (port 8081) to `ClusterIP` (port 80) and added `k8s/30-ingress.yaml`. That file routes host `ai-notes.test` through Traefik.
+PR #9 (`69db7cb`) changed the `web` Service from `LoadBalancer` (port 8081) to `ClusterIP` (port 80) and added `k8s/30-ingress.yaml`. That file routes host `ai-notes.test` through Traefik.
 
 - `localhost:8081` no longer works. Go through the Ingress instead: `curl -H "Host: ai-notes.test" localhost/health`.
 - `404 page not found` (plain text) comes from **Traefik**, not the app. It means no Ingress rule matched. Either the Ingress doesn't exist yet (Argo CD hasn't synced) or the `Host` header is missing or wrong.
 - `{"detail":"Not Found"}` (JSON) comes from **FastAPI**. The request reached the app, but the route doesn't exist in that image.
-- To drop the `-H` header, add `127.0.0.1 ai-notes.test` to `/etc/hosts` and then run `curl ai-notes.test/health`.
+- To drop the `-H` header, map the hostname to your machine (see below). Then `curl ai-notes.test/health` works and http://ai-notes.test/docs opens in a browser.
+
+### Map `ai-notes.test` in `/etc/hosts`
+
+Run this in a regular Terminal window, **not** through Claude Code's `!` prefix, because `sudo` needs to ask for your password:
+
+```sh
+sudo sh -c 'echo "127.0.0.1 ai-notes.test" >> /etc/hosts'
+sudo dscacheutil -flushcache; sudo killall -HUP mDNSResponder   # clear the macOS DNS cache
+```
+
+Check it:
+
+```sh
+grep ai-notes /etc/hosts           # should print the new line
+ls -la /etc/hosts                  # modified time should be now
+curl http://ai-notes.test/health   # {"status":"ok"}
+```
+
+`curl: (6) Could not resolve host: ai-notes.test` means the line was never written. If the browser still fails but curl works, try a private window. Browsers cache failed lookups, and Chrome's "Use secure DNS" setting can bypass `/etc/hosts`.
 
 ```sh
 kubectl get ingressclass                                       # traefik should be listed
@@ -112,4 +133,5 @@ kubectl -n argocd get app ai-notes -o jsonpath='{.status.sync.revision}'   # sho
 ## Claude Code notes
 
 - `! <command>` in the Claude Code prompt runs the command yourself in the same session, for interactive steps like `gh auth login`.
+- `! sudo ...` can fail silently because it can't prompt for a password, and nothing changes. Run `sudo` commands in a separate terminal.
 - Auto mode blocked Claude from running `gh pr merge` ("Merge Without Review"). A human does the final merge, which is a good checkpoint for anything that deploys.
