@@ -36,8 +36,22 @@ jobs:
       - run: pytest -v
 
   build:
-    needs: test # only runs if tests pass
-    runs-on: ubuntu-latest
+    needs: test
+    runs-on: ubuntu-24.04-arm # ARM, same CPU type as your Mac
+    permissions:
+      contents: read
+      packages: write # allows pushing to GHCR
     steps:
       - uses: actions/checkout@v5
-      - run: docker build -t ai-notes:${{ github.sha }} .
+
+      - name: Set image name
+        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+
+      - name: Build
+        run: docker build -t "$IMAGE:${{ github.sha }}" .
+
+      - name: Push (main only)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          docker push "$IMAGE:${{ github.sha }}"
