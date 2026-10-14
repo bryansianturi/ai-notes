@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: web
-          image: ghcr.io/bryansianturi/ai-notes:1298ce922e5e4fae89277712198651703e6ee796
+          image: ghcr.io/bryansianturi/ai-notes:b8e70133f4eed75fd72fca3390e26fa258a614ad
           ports:
             - containerPort: 8000
           env:
@@ -28,7 +28,7 @@ spec:
               value: http://host.docker.internal:11434
           readinessProbe:
             httpGet:
-              path: /docs
+              path: /health
               port: 8000
 ---
 apiVersion: v1
