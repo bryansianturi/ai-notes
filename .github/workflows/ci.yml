@@ -59,7 +59,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        dir: [terraform]
+        dir: [terraform, terraform-k8s]
     defaults:
       run:
         working-directory: ${{ matrix.dir }}
