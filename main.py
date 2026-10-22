@@ -68,6 +68,8 @@ def ask_ollama(text: str, model: str = MODEL) -> dict:
 async def lifespan(app: FastAPI):
     # Runs once when the app starts: make sure the table exists.
     with get_conn() as conn:
+        # Several replicas can start at once; the lock stops them racing on CREATE TABLE
+        conn.execute("SELECT pg_advisory_xact_lock(1)")
         conn.execute("""
             CREATE TABLE IF NOT EXISTS notes (
                 id SERIAL PRIMARY KEY,
@@ -185,16 +187,23 @@ def summarise_note(note_id: int):
         data = ask_ollama(note["body"])
     except requests.RequestException as e:
         OLLAMA_ERRORS.inc()
+        status = e.response.status_code if e.response is not None else None
         log.warning(
             "ollama_failed",
             extra={
                 "fields": {
                     "note_id": note_id,
                     "error": type(e).__name__,
+                    "ollama_status": status,
                     "detail": str(e)[:200],
                 }
             },
         )
+        if status is not None:
+            # Ollama is up but rejected the request, e.g. 404 when the model isn't pulled
+            raise HTTPException(
+                status_code=502, detail=f"Ollama returned an error ({status})"
+            )
         raise HTTPException(
             status_code=503, detail="Can't reach Ollama. Is it running?"
         )

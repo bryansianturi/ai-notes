@@ -62,6 +62,22 @@ def test_summarise_returns_503_when_ollama_down(client, monkeypatch):
     assert r.status_code == 503
 
 
+def test_summarise_returns_502_when_ollama_errors(client, monkeypatch):
+    def model_not_found(*a, **kw):
+        response = requests.Response()
+        response.status_code = 404
+        raise requests.HTTPError(response=response)
+
+    monkeypatch.setattr(main.requests, "post", model_not_found)
+
+    note_id = client.post("/notes", json={"title": "T", "body": "A long note"}).json()[
+        "id"
+    ]
+    r = client.post(f"/notes/{note_id}/summarise")
+
+    assert r.status_code == 502
+
+
 def test_health(client):
     r = client.get("/health")
     assert r.status_code == 200
