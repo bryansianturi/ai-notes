@@ -12,8 +12,9 @@ from pathlib import Path
 
 import main
 
-CASES = json.loads(Path("evals/cases.json").read_text())
-RESULTS_DIR = Path("evals/results")
+EVALS_DIR = Path(__file__).parent / "evals"
+CASES = json.loads((EVALS_DIR / "cases.json").read_text())
+RESULTS_DIR = EVALS_DIR / "results"
 PASS_THRESHOLD = 0.8  # the run fails if fewer than 80% of cases pass
 MAX_WORDS = 30
 PREAMBLES = ("here is", "here's", "summary:", "sure")
