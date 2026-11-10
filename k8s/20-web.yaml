@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: web
-          image: ghcr.io/bryansianturi/ai-notes:88c11d383bc6119bd4b74dede4b51ebb3cc226e8
+          image: ghcr.io/bryansianturi/ai-notes:c8f946a33fd3bd9a134a9dd842743e4febc12f70
           ports:
             - containerPort: 8000
           env:
@@ -26,10 +26,21 @@ spec:
                   key: DATABASE_URL
             - name: OLLAMA_URL
               value: http://host.docker.internal:11434
+          # Ready = the database answers, so traffic only goes to pods that can serve it
           readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8000
+            periodSeconds: 5
+          # Alive = the process responds. Generous, so slow summaries don't cause restarts
+          livenessProbe:
             httpGet:
               path: /health
               port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
 ---
 apiVersion: v1
 kind: Service
