@@ -1,0 +1,29 @@
+server {
+    listen 8080;
+    root /usr/share/nginx/html;
+
+    # API calls: strip the /api prefix and forward to FastAPI
+    location /api/ {
+        proxy_pass ${API_UPSTREAM}/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Request-ID $request_id;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        # Summaries can take up to 120s (the Ollama timeout in main.py)
+        proxy_read_timeout 130s;
+    }
+
+    # Hashed build files never change, so they can be cached for good
+    location /assets/ {
+        add_header Cache-Control "public, max-age=31536000, immutable";
+    }
+
+    location / {
+        try_files $uri /index.html;
+        add_header Cache-Control "no-cache";
+    }
+
+    location = /healthz {
+        access_log off;
+        return 200 "ok\n";
+    }
+}
