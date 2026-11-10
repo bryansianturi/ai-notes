@@ -41,6 +41,15 @@ services:
     depends_on:
       db:
         condition: service_healthy
+  frontend:
+    build: ./frontend
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      API_UPSTREAM: http://web:8000
+    depends_on:
+      web:
+        condition: service_healthy
 
 volumes:
   pgdata:
