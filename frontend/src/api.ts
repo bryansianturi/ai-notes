@@ -73,6 +73,11 @@ export async function listNotes(params: {
   return { notes, total }
 }
 
+export async function getNote(id: number): Promise<Note> {
+  const res = await request(`/notes/${id}`)
+  return res.json()
+}
+
 export async function createNote(input: NoteInput): Promise<Note> {
   const res = await request('/notes', { method: 'POST', body: JSON.stringify(input) })
   return res.json()

@@ -1,6 +1,8 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
+import '@fontsource-variable/figtree'
+import '@fontsource-variable/fraunces/full.css'
 import App from './App.tsx'
 import './index.css'
 

@@ -1,152 +1,99 @@
-import {
-  keepPreviousData,
-  useInfiniteQuery,
-  useMutation,
-  useQueryClient,
-} from '@tanstack/react-query'
-import { useEffect, useState, type FormEvent } from 'react'
-import { BODY_MAX, createNote, listNotes, TITLE_MAX } from './api.ts'
-import NoteCard from './NoteCard.tsx'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import Editor from './Editor.tsx'
+import Sidebar from './Sidebar.tsx'
 
-const PAGE_SIZE = 20
+// The open note lives in the URL hash, so reloads and the back button work:
+//   #/          a blank page (on phones: the list)
+//   #/new       a blank page
+//   #/notes/12  note 12
+type Route = { kind: 'home' } | { kind: 'new' } | { kind: 'note'; id: number }
 
-function useDebounced<T>(value: T, ms: number): T {
-  const [debounced, setDebounced] = useState(value)
-  useEffect(() => {
-    const t = setTimeout(() => setDebounced(value), ms)
-    return () => clearTimeout(t)
-  }, [value, ms])
-  return debounced
+function parseHash(hash: string): Route {
+  const match = hash.match(/^#\/notes\/(\d+)$/)
+  if (match) return { kind: 'note', id: Number(match[1]) }
+  if (hash === '#/new') return { kind: 'new' }
+  return { kind: 'home' }
 }
 
-function NewNoteForm() {
-  const queryClient = useQueryClient()
-  const [title, setTitle] = useState('')
-  const [body, setBody] = useState('')
-
-  const create = useMutation({
-    mutationFn: createNote,
-    onSuccess: () => {
-      setTitle('')
-      setBody('')
-      queryClient.invalidateQueries({ queryKey: ['notes'] })
-    },
-  })
-
-  function submit(e: FormEvent) {
-    e.preventDefault()
-    if (!title.trim() || !body.trim()) return
-    create.mutate({ title: title.trim(), body })
-  }
-
+function isTyping(target: EventTarget | null): boolean {
   return (
-    <form className="card new-note" onSubmit={submit} aria-label="New note">
-      <input
-        aria-label="Title"
-        placeholder="Title"
-        value={title}
-        maxLength={TITLE_MAX}
-        onChange={(e) => setTitle(e.target.value)}
-      />
-      <textarea
-        aria-label="Body"
-        placeholder="Write a note…"
-        rows={4}
-        value={body}
-        maxLength={BODY_MAX}
-        onChange={(e) => setBody(e.target.value)}
-      />
-      {create.isError && (
-        <p className="error" role="alert">
-          {create.error.message}
-        </p>
-      )}
-      <div className="actions">
-        <button
-          type="submit"
-          className="primary"
-          disabled={create.isPending || !title.trim() || !body.trim()}
-        >
-          {create.isPending ? 'Saving…' : 'Add note'}
-        </button>
-      </div>
-    </form>
+    target instanceof HTMLElement &&
+    (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))
   )
 }
 
 export default function App() {
-  const [search, setSearch] = useState('')
-  const q = useDebounced(search.trim(), 300)
+  const [route, setRoute] = useState(() => parseHash(window.location.hash))
+  // A new key opens a fresh editor. A draft that gets saved keeps its key, so the caret stays put.
+  const [editorKey, setEditorKey] = useState(0)
+  const [focusMode, setFocusMode] = useState(false)
+  const searchRef = useRef<HTMLInputElement>(null)
 
-  const notes = useInfiniteQuery({
-    queryKey: ['notes', q],
-    queryFn: ({ pageParam }) => listNotes({ q, limit: PAGE_SIZE, offset: pageParam }),
-    initialPageParam: 0,
-    getNextPageParam: (last, pages) => {
-      const loaded = pages.reduce((n, p) => n + p.notes.length, 0)
-      return loaded < last.total ? loaded : undefined
-    },
-    // Keep showing the old results while a new search loads, instead of flashing empty
-    placeholderData: keepPreviousData,
-  })
+  useEffect(() => {
+    const onHashChange = () => {
+      setRoute(parseHash(window.location.hash))
+      setEditorKey((k) => k + 1)
+    }
+    window.addEventListener('hashchange', onHashChange)
+    return () => window.removeEventListener('hashchange', onHashChange)
+  }, [])
 
-  const items = notes.data?.pages.flatMap((p) => p.notes) ?? []
-  const total = notes.data?.pages[0]?.total ?? 0
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === '.') {
+        e.preventDefault()
+        setFocusMode((f) => !f)
+      } else if (e.key === 'Escape') {
+        setFocusMode(false)
+      } else if (e.key === '/' && !isTyping(e.target)) {
+        e.preventDefault()
+        setFocusMode(false)
+        searchRef.current?.focus()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
+  const onCreated = useCallback((id: number) => {
+    // replaceState doesn't fire hashchange, so the editor isn't reopened mid-sentence
+    window.history.replaceState(null, '', `#/notes/${id}`)
+    setRoute({ kind: 'note', id })
+  }, [])
+
+  const onGone = useCallback(() => {
+    window.location.hash = '#/'
+  }, [])
+
+  const onNewNote = useCallback(() => {
+    setFocusMode(false)
+    if (window.location.hash === '#/new') setEditorKey((k) => k + 1)
+    else window.location.hash = '#/new'
+  }, [])
+
+  const toggleFocus = useCallback(() => setFocusMode((f) => !f), [])
 
   return (
-    <div className="page">
-      <header>
-        <h1>ai-notes</h1>
-        <p className="muted">Notes, summarised by a local model.</p>
-      </header>
-
-      <NewNoteForm />
-
-      <div className="toolbar">
-        <input
-          type="search"
-          aria-label="Search notes"
-          placeholder="Search notes"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
+    <div
+      className="app"
+      data-view={route.kind === 'home' ? 'list' : 'reader'}
+      data-focus={focusMode ? 'on' : undefined}
+    >
+      <Sidebar
+        selectedId={route.kind === 'note' ? route.id : null}
+        onNewNote={onNewNote}
+        searchRef={searchRef}
+      />
+      <main className="reader">
+        <Editor
+          key={editorKey}
+          noteId={route.kind === 'note' ? route.id : null}
+          onCreated={onCreated}
+          onGone={onGone}
+          focusMode={focusMode}
+          onToggleFocus={toggleFocus}
         />
-        {notes.isSuccess && (
-          <span className="muted count">
-            {total} {total === 1 ? 'note' : 'notes'}
-          </span>
-        )}
-      </div>
-
-      {notes.isPending && <p className="muted">Loading notes…</p>}
-
-      {notes.isError && (
-        <div className="card error-banner" role="alert">
-          <span>Couldn't load notes: {notes.error.message}</span>
-          <button onClick={() => notes.refetch()}>Retry</button>
-        </div>
-      )}
-
-      {notes.isSuccess && items.length === 0 && (
-        <p className="muted empty">
-          {q ? `No notes match “${q}”.` : 'No notes yet. Write your first one above.'}
-        </p>
-      )}
-
-      <ul className="notes" aria-busy={notes.isPlaceholderData}>
-        {items.map((note) => (
-          <li key={note.id}>
-            <NoteCard note={note} />
-          </li>
-        ))}
-      </ul>
-
-      {notes.hasNextPage && (
-        <div className="load-more">
-          <button onClick={() => notes.fetchNextPage()} disabled={notes.isFetchingNextPage}>
-            {notes.isFetchingNextPage ? 'Loading…' : 'Load more'}
-          </button>
-        </div>
-      )}
+      </main>
     </div>
   )
 }
