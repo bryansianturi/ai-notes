@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: frontend
-          image: ghcr.io/bryansianturi/ai-notes-frontend:c8f946a33fd3bd9a134a9dd842743e4febc12f70
+          image: ghcr.io/bryansianturi/ai-notes-frontend:de1cce6e3534b3e5b485b07f392027ca22c9006a
           ports:
             - containerPort: 8080
           env:
